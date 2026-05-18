@@ -23,7 +23,7 @@
     "packages/producer/src/services/pngDecodeBlitWorker.ts",
     "packages/producer/src/services/shaderTransitionWorker.ts",
     "scripts/*.{ts,mjs,js}",
-    "scripts/*/run.mjs"
+    "scripts/*/run.mjs",
   ],
   "ignorePatterns": [
     "docs/**",
@@ -34,7 +34,7 @@
     "skills/**/scripts/**",
     "registry/**",
     "examples/**",
-    ".github/workflows/fixtures/**"
+    ".github/workflows/fixtures/**",
   ],
   "ignoreExports": [
     // CLI command files: every command exports a const `examples` per the
@@ -45,14 +45,14 @@
     // MODELS_DIR / ensureModel for their model namespace.
     {
       "file": "packages/cli/src/{background-removal,tts,whisper}/manager.ts",
-      "exports": ["DEFAULT_MODEL", "MODELS_DIR", "ensureModel"]
+      "exports": ["DEFAULT_MODEL", "MODELS_DIR", "ensureModel"],
     },
     // `isPathInside` is documented as exported-for-tests only in fileServer.ts;
     // it has different semantics (symlink resolution) from utils/paths.ts.
     {
       "file": "packages/producer/src/services/fileServer.ts",
-      "exports": ["isPathInside"]
-    }
+      "exports": ["isPathInside"],
+    },
   ],
   "ignoreDependencies": [
     // Runtime/dynamic deps not visible to static analysis: tsup `external`,
@@ -87,6 +87,6 @@
     "@fontsource/playfair-display",
     "@fontsource/poppins",
     "@fontsource/roboto",
-    "@fontsource/source-code-pro"
-  ]
+    "@fontsource/source-code-pro",
+  ],
 }
