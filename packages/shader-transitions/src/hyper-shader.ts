@@ -2253,13 +2253,28 @@ function initEngineMode(
     if (!fromId || !toId) continue;
 
     const dur = t.duration ?? DEFAULT_DURATION;
+    const ease = t.ease ?? DEFAULT_EASE;
     const T = t.time;
 
-    // During the transition both scenes need to be visible so the engine
-    // can composite each side; afterwards the outgoing scene must drop out
-    // so it stops contributing to the normal-frame layer composite.
-    tl.set(`#${toId}`, { opacity: 1 }, T);
-    tl.set(`#${fromId}`, { opacity: 0 }, T + dur);
+    if (t.shader === undefined) {
+      // CSS-crossfade transition: schedule an actual opacity tween so the
+      // page produces a correct blended frame at every seek time. This
+      // matters when the producer captures with page-side compositing
+      // (one opaque screenshot per frame) — there is no Node-side blend
+      // step in that path, so the page must show the correct mix. Even
+      // in the layered Node path the crossfade is harmless (it merely
+      // mirrors what `crossfade()` computes from the per-scene buffers).
+      tl.fromTo(`#${toId}`, { opacity: 0 }, { opacity: 1, duration: dur, ease }, T);
+      tl.fromTo(`#${fromId}`, { opacity: 1 }, { opacity: 0, duration: dur, ease }, T);
+    } else {
+      // Shader transition: both scenes must stay at opacity=1 during the
+      // transition window so the Node-side layered compositor can capture
+      // each scene separately and blend them itself. The from-scene drops
+      // out at T+dur so it stops contributing to the next normal-frame
+      // layer composite.
+      tl.set(`#${toId}`, { opacity: 1 }, T);
+      tl.set(`#${fromId}`, { opacity: 0 }, T + dur);
+    }
   }
 
   // Page-side compositing opt-in (default OFF). When the producer launches
@@ -2289,7 +2304,9 @@ function initEngineMode(
     // Pass the full transitions array so transition[i] still pairs with
     // scenes[i]/scenes[i+1]. The compositor itself skips entries with
     // `shader === undefined` while preserving the index↔scene mapping.
-    // (CSS crossfades remain driven by the GSAP opacity timeline.)
+    // CSS crossfades produce a correct blended frame via the actual
+    // opacity-crossfade tween scheduled above (search `t.shader === undefined`
+    // in this function).
     installPageSideCompositor({
       scenes,
       transitions,

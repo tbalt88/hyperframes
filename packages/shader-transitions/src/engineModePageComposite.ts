@@ -44,10 +44,11 @@ interface PageCompositeTransitionConfig {
   time: number;
   /**
    * Shader id. Undefined entries are CSS crossfades — the page-side
-   * compositor skips them so the GSAP opacity timeline handles the blend,
-   * but the entry stays in the array to preserve `transitions[i]` ↔
-   * `scenes[i]`/`scenes[i+1]` index alignment for the surrounding shader
-   * entries.
+   * compositor skips them, and the GSAP timeline in `initEngineMode`
+   * schedules an actual opacity-crossfade tween for those entries so the
+   * single page screenshot contains a correct blended frame. The entry
+   * stays in the array to preserve `transitions[i]` ↔ `scenes[i]`/
+   * `scenes[i+1]` index alignment for the surrounding shader entries.
    */
   shader?: ShaderName;
   duration?: number;
