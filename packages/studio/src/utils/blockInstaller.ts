@@ -31,6 +31,7 @@ interface AddBlockOptions {
   placement?: { start: number; track: number };
   visualPosition?: { left: number; top: number };
   previewIframe?: HTMLIFrameElement | null;
+  currentTime?: number;
   timelineElements: TimelineElement[];
   readProjectFile: (path: string) => Promise<string>;
   writeProjectFile: (path: string, content: string) => Promise<void>;
@@ -120,20 +121,18 @@ export async function addBlockToProject(
       const isBlock = block.type === "hyperframes:block";
       const hostDims = resolveTimelineAssetInitialGeometry(originalContent);
 
+      const currentTime = opts.currentTime ?? 0;
       const start = placement
         ? Number(formatTimelineAttributeNumber(placement.start))
-        : isBlock
-          ? relevantElements.reduce(
-              (max, te) => Math.max(max, (te.start ?? 0) + (te.duration ?? 0)),
-              0,
-            )
-          : 0;
-      const duration = isBlock
-        ? (block as { duration: number }).duration
-        : relevantElements.reduce(
-            (max, te) => Math.max(max, (te.start ?? 0) + (te.duration ?? 0)),
-            10,
-          );
+        : Number(formatTimelineAttributeNumber(currentTime));
+      const blockDuration =
+        "duration" in block ? (block as { duration: number }).duration : undefined;
+      const duration =
+        blockDuration ??
+        relevantElements.reduce(
+          (max, te) => Math.max(max, (te.start ?? 0) + (te.duration ?? 0)),
+          10,
+        );
       const track =
         placement?.track ??
         (isBlock
@@ -163,7 +162,21 @@ export async function addBlockToProject(
         `></div>`,
       ].join("\n");
 
-      const patchedContent = insertTimelineAssetIntoSource(originalContent, subCompHtml);
+      let patchedContent = insertTimelineAssetIntoSource(originalContent, subCompHtml);
+
+      const newEnd = start + duration;
+      const rootDurMatch = patchedContent.match(
+        /(<[^>]*data-composition-id="[^"]*"[^>]*data-duration=")([^"]*)(")/,
+      );
+      if (rootDurMatch) {
+        const rootDur = parseFloat(rootDurMatch[2]!);
+        if (newEnd > rootDur) {
+          patchedContent = patchedContent.replace(
+            rootDurMatch[0],
+            `${rootDurMatch[1]}${formatTimelineAttributeNumber(newEnd)}${rootDurMatch[3]}`,
+          );
+        }
+      }
 
       await saveProjectFilesWithHistory({
         projectId,
