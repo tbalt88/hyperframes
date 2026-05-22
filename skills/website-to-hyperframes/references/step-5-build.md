@@ -455,7 +455,7 @@ For each SFX entry:
 3. Add beat-local + global start: `3.5 + 1.2 = 4.7s`.
 4. Write `data-start="4.7"` in index.html.
 
-**Forbidden:** writing `data-start="<approximate visual moment>"` by reading the storyboard and estimating by eye. The evidence block above MUST quote both the storyboard SFX line and the index.html `data-start` line — and confirm they match within ±0.05s. A 1-second drift is not a rounding error; it's a build failure.
+**Forbidden:** writing `data-start="<approximate visual moment>"` by reading the storyboard and estimating by eye. The evidence block above MUST quote both the storyboard SFX line and the index.html `data-start` line — and confirm they match within ±0.1s (≈3 frames at 30fps; same tolerance `w2h-verify.mjs` enforces and `step-6-validate.md` uses for playback verification). A 1-second drift is not a rounding error; it's a build failure.
 
 ### Surface recurring sub-agent workarounds to the user
 

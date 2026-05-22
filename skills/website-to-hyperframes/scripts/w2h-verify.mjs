@@ -26,7 +26,7 @@ const PROJECT_DIR = resolve(process.argv[2] || ".");
 // Thresholds — change here, not by interpretation.
 const HEADLINE_MIN_PX = 80; // 80px floor for primary headline at 1920×1080
 const TIMELINE_COVERAGE_MIN = 0.7; // max GSAP event position must reach ≥70% of beat duration
-const SFX_DRIFT_TOLERANCE_S = 0.5;
+const SFX_DRIFT_TOLERANCE_S = 0.1; // 3 frames at 30fps; matches step-5 evidence rule + step-6 playback floor
 const BEAT_DURATION_DRIFT_TOLERANCE_S = 0.5;
 
 const SHADER_NAMES = [
