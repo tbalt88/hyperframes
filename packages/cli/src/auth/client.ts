@@ -15,8 +15,10 @@
  * `movio/api_service/app/controller/user_v3.py`.
  */
 
-import { ErrApi, ErrUnauthenticated } from "./errors.js";
+import { ErrApi, ErrUnauthenticated, isAuthError } from "./errors.js";
 import type { ResolvedCredential } from "./resolver.js";
+import { scrubCredentials } from "./scrub.js";
+import type { OAuthTokens } from "./store.js";
 
 const DEFAULT_BASE_URL = "https://api.heygen.com";
 
@@ -74,27 +76,75 @@ export interface AuthClientOptions {
   baseUrl?: string;
   /** Inject a custom fetch (used by tests). */
   fetchImpl?: typeof fetch;
+  /**
+   * Hook for refreshing an OAuth credential on 401. The hook should
+   * exchange the supplied refresh_token for new tokens, persist them,
+   * and return the FULL new token set — at minimum a fresh
+   * `access_token`, plus a fresh `refresh_token` if the IdP rotated it.
+   * Returning the full set lets the retry's credential carry the new
+   * refresh_token, so any subsequent refresh on the same in-memory
+   * credential doesn't re-use a now-invalidated rotated RT.
+   * Wired in by the auth commands; injectable for tests.
+   */
+  onUnauthenticatedRefresh?: (refresh_token: string) => Promise<OAuthTokens>;
 }
 
 export class AuthClient {
   private readonly base: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly onRefresh?: (refresh_token: string) => Promise<OAuthTokens>;
 
   constructor(opts: AuthClientOptions = {}) {
     this.base = (opts.baseUrl ?? apiBaseUrl()).replace(/\/+$/, "");
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.onRefresh = opts.onUnauthenticatedRefresh;
   }
 
   /**
    * `GET /v3/users/me`. Throws `ErrUnauthenticated` on 401, `ErrApi`
    * on any other non-2xx or non-JSON body.
+   *
+   * On OAuth 401 with a refresh hook configured, the request is
+   * retried once after refreshing the access token. The retry's
+   * outcome is what the caller sees — if the refresh itself fails
+   * (REFRESH_FAILED) or the retry still 401s, the user lands on a
+   * "please log in again" path upstream.
    */
   async getCurrentUser(credential: ResolvedCredential): Promise<UserInfo> {
     const url = `${this.base}/v3/users/me`;
+    return await this.fetchUser(url, credential, true);
+  }
+
+  // fallow-ignore-next-line complexity
+  private async fetchUser(
+    url: string,
+    credential: ResolvedCredential,
+    allowRefresh: boolean,
+  ): Promise<UserInfo> {
     const headers = buildAuthHeaders(credential);
     const res = await this.fetchImpl(url, { method: "GET", headers });
 
     if (res.status === 401) {
+      if (
+        allowRefresh &&
+        credential.type === "oauth" &&
+        credential.refresh_token &&
+        this.onRefresh
+      ) {
+        const refreshed = await this.tryRefresh(credential.refresh_token);
+        if (refreshed) {
+          // Carry the new refresh_token forward too — for IdPs that
+          // rotate RTs on every refresh, a future retry on this
+          // in-memory credential would otherwise re-send the old
+          // (now-invalidated) one.
+          const next: ResolvedCredential = {
+            ...credential,
+            access_token: refreshed.access_token,
+            ...(refreshed.refresh_token ? { refresh_token: refreshed.refresh_token } : {}),
+          };
+          return await this.fetchUser(url, next, false);
+        }
+      }
       const detail = await safeText(res);
       throw ErrUnauthenticated(detail || `${res.status} ${res.statusText}`);
     }
@@ -109,6 +159,19 @@ export class AuthClient {
       throw ErrApi(res.status, `non-JSON body: ${(err as Error).message}`);
     }
     return extractUserInfo(payload);
+  }
+
+  private async tryRefresh(refresh_token: string): Promise<OAuthTokens | null> {
+    if (!this.onRefresh) return null;
+    try {
+      return await this.onRefresh(refresh_token);
+    } catch (err) {
+      // Refresh failure should be surfaced upstream by the caller via
+      // the retry's 401, not by throwing here — so callers consistently
+      // see "please log in again" rather than mixed error types.
+      if (isAuthError(err) && err.code === "REFRESH_FAILED") return null;
+      throw err;
+    }
   }
 }
 
@@ -126,25 +189,6 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return "";
   }
-}
-
-/**
- * Strip credential-shaped substrings from error bodies before they
- * surface in user-facing messages or `--json` output. Some proxies
- * echo request headers in their error pages and we never want a
- * HeyGen API key, OAuth bearer, or JWT to land in scrollback / CI
- * logs because of one of those echoes.
- */
-function scrubCredentials(s: string): string {
-  return (
-    s
-      .replace(/hg_[A-Za-z0-9_-]{4,}/g, "hg_<redacted>")
-      // Redact the ENTIRE header value to end-of-line — `Bearer <token>`
-      // is two whitespace-separated words, so a `\S+` would leave the
-      // opaque token exposed after the scheme.
-      .replace(/(authorization|x-api-key)[ \t]*[:=][ \t]*[^\r\n]+/gi, "$1: <redacted>")
-      .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "<jwt-redacted>")
-  );
 }
 
 /**

@@ -159,6 +159,115 @@ describe("auth/client", () => {
     throw new Error("expected rejection");
   });
 
+  it("getCurrentUser retries once on 401 when refresh hook is configured for OAuth", async () => {
+    let callCount = 0;
+    const observed: string[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      callCount++;
+      const headers = (init?.headers as Record<string, string>) ?? {};
+      observed.push(headers["authorization"] ?? "");
+      if (callCount === 1) return new Response("expired", { status: 401 });
+      return new Response(JSON.stringify({ email: "a@b" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const client = new AuthClient({
+      baseUrl: "https://api.test.example",
+      fetchImpl,
+      onUnauthenticatedRefresh: async () => ({
+        access_token: "fresh_at",
+        refresh_token: "fresh_rt",
+      }),
+    });
+    const user = await client.getCurrentUser({
+      type: "oauth",
+      access_token: "stale_at",
+      refresh_token: "rt",
+      source: "file_json",
+      refreshable: true,
+    });
+    expect(user.email).toBe("a@b");
+    expect(observed[0]).toBe("Bearer stale_at");
+    expect(observed[1]).toBe("Bearer fresh_at");
+    expect(callCount).toBe(2);
+  });
+
+  it("getCurrentUser hook returns full token set so the retry credential carries any rotated refresh_token", async () => {
+    // The hook contract now returns `OAuthTokens` (access_token plus an
+    // optional rotated refresh_token), not just an access_token string.
+    // For IdPs that rotate refresh_tokens on every exchange, any future
+    // retry on the in-memory credential needs the FRESH rt — the in-
+    // memory credential must be rebuilt from the hook's return, not
+    // re-use the stale rt from the original credential.
+    let receivedRt = "";
+    const fetchImpl = (async () =>
+      new Response("expired", { status: 401 })) as unknown as typeof fetch;
+    const client = new AuthClient({
+      baseUrl: "https://api.test.example",
+      fetchImpl,
+      onUnauthenticatedRefresh: async (rt) => {
+        receivedRt = rt;
+        // Hook MUST be able to return a rotated refresh_token — this
+        // would have been impossible with the old `Promise<string>`
+        // contract. The type checker fails the build if the shape drifts.
+        return { access_token: "fresh_at", refresh_token: "rotated_rt" };
+      },
+    });
+    await expect(
+      client.getCurrentUser({
+        type: "oauth",
+        access_token: "stale_at",
+        refresh_token: "ORIGINAL_rt",
+        source: "file_json",
+        refreshable: true,
+      }),
+    ).rejects.toSatisfy((err) => isAuthError(err));
+    expect(receivedRt).toBe("ORIGINAL_rt");
+  });
+
+  it("getCurrentUser does NOT retry on 401 for api_key credentials", async () => {
+    let callCount = 0;
+    const fetchImpl = (async () => {
+      callCount++;
+      return new Response("invalid", { status: 401 });
+    }) as unknown as typeof fetch;
+    const client = new AuthClient({
+      baseUrl: "https://api.test.example",
+      fetchImpl,
+      onUnauthenticatedRefresh: async () => ({ access_token: "fresh" }),
+    });
+    await expect(client.getCurrentUser(apiKeyCred())).rejects.toSatisfy((err) => {
+      return isAuthError(err) && (err as { code: string }).code === "UNAUTHENTICATED";
+    });
+    expect(callCount).toBe(1);
+  });
+
+  it("getCurrentUser surfaces 401 when refresh hook returns null (refresh failed)", async () => {
+    const fetchImpl = (async () =>
+      new Response("nope", { status: 401 })) as unknown as typeof fetch;
+    const { ErrRefreshFailed } = await import("./errors.js");
+    const client = new AuthClient({
+      baseUrl: "https://api.test.example",
+      fetchImpl,
+      onUnauthenticatedRefresh: async () => {
+        throw ErrRefreshFailed("invalid_grant");
+      },
+    });
+    await expect(
+      client.getCurrentUser({
+        type: "oauth",
+        access_token: "stale",
+        refresh_token: "rt",
+        source: "file_json",
+        refreshable: true,
+      }),
+    ).rejects.toSatisfy((err) => {
+      return isAuthError(err) && (err as { code: string }).code === "UNAUTHENTICATED";
+    });
+  });
+
   it("getCurrentUser sends the right header for oauth credentials", async () => {
     let captured: Record<string, string> = {};
     const fetchImpl = (async (_url: string, init?: RequestInit) => {
