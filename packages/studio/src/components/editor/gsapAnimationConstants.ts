@@ -4,7 +4,7 @@ export const METHOD_LABELS: Record<string, string> = {
   set: "Set",
   to: "Animate",
   from: "Animate In",
-  fromTo: "Animate",
+  fromTo: "From → To",
 };
 
 export const METHOD_TOOLTIPS: Record<string, string> = {
@@ -120,6 +120,8 @@ export function parseCustomEaseFromString(ease: string): {
   if (!nums || nums.length < 6) return controlPointsForGsapEase("power2.out");
   return { x1: nums[2], y1: nums[3], x2: nums[4], y2: nums[5] };
 }
+
+export const PERCENT_PROPS = new Set(["opacity", "autoAlpha"]);
 
 export const ADD_METHODS = ["to", "from", "fromTo", "set"] as const;
 

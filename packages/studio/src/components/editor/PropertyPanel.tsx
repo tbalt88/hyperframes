@@ -135,6 +135,7 @@ function TimingSection({
 /*  PropertyPanel                                                      */
 /* ------------------------------------------------------------------ */
 
+// fallow-ignore-next-line complexity
 export const PropertyPanel = memo(function PropertyPanel({
   projectId,
   projectDir,
@@ -229,6 +230,7 @@ export const PropertyPanel = memo(function PropertyPanel({
     });
   };
 
+  // fallow-ignore-next-line complexity
   const commitManualSize = (axis: "width" | "height", nextValue: string) => {
     const parsed = parsePxMetricValue(nextValue);
     if (parsed == null || parsed <= 0) return;
@@ -281,7 +283,7 @@ export const PropertyPanel = memo(function PropertyPanel({
             className="inline-flex h-8 items-center justify-center gap-2 rounded-xl border border-neutral-700 bg-neutral-950 px-3.5 text-[11px] font-medium text-neutral-100 transition-colors hover:border-studio-accent/40 hover:text-studio-accent"
           >
             <MessageSquare size={15} />
-            <span>{copiedAgentPrompt ? "Prompt copied" : "Ask agent"}</span>
+            <span>{copiedAgentPrompt ? "Prompt copied" : "Copy prompt to AI agent"}</span>
           </button>
         </div>
       </div>
