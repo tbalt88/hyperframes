@@ -11,7 +11,8 @@ import {
   createStudioMotionRenderBodyScript,
   STUDIO_MOTION_PATH,
 } from "../helpers/studioMotionRenderScript.js";
-import { ensureHfIds, persistHfIdsIfNeeded } from "../helpers/hfIdPersist.js";
+import { ensureHfIds } from "../../parsers/hfIds.js";
+import { persistHfIdsIfNeeded } from "../helpers/hfIdPersist.js";
 
 const PROJECT_SIGNATURE_META = "hyperframes-project-signature";
 const GSAP_CDN_VERSION = "3.15.0";
@@ -195,6 +196,7 @@ export function registerPreviewRoutes(api: Hono, adapter: StudioApiAdapter): voi
   });
 
   // Bundled composition preview
+  // fallow-ignore-next-line complexity
   api.get("/projects/:id/preview", async (c) => {
     const project = await adapter.resolveProject(c.req.param("id"));
     if (!project) return c.json({ error: "not found" }, 404);
@@ -216,8 +218,8 @@ export function registerPreviewRoutes(api: Hono, adapter: StudioApiAdapter): voi
       let bundled = await adapter.bundle(project.dir);
       let mainCompositionPath = "index.html";
       if (!bundled) {
-        if (!diskMain || normalizedDisk === null) return c.text("not found", 404);
-        bundled = normalizedDisk;
+        if (!diskMain) return c.text("not found", 404);
+        bundled = normalizedDisk ?? diskMain.html;
         mainCompositionPath = diskMain.compositionPath;
       }
 
@@ -238,6 +240,11 @@ export function registerPreviewRoutes(api: Hono, adapter: StudioApiAdapter): voi
         bundled = bundled.replace(/<head>/i, `<head><base href="${baseHref}">`);
       }
 
+      // ensureHfIds runs after transformPreviewHtml in case the adapter injected
+      // new elements. On the no-bundle path bundled=normalizedDisk (already tagged)
+      // so this is idempotent. On the bundled path the bundler may return untagged
+      // HTML (stale cache); because ids are content-keyed the minted ids will match
+      // the ids already written to disk by persistHfIdsIfNeeded above.
       bundled = injectStudioPreviewAugmentations(
         ensureHfIds(await transformPreviewHtml(bundled, adapter, project, mainCompositionPath)),
         adapter,
@@ -246,20 +253,20 @@ export function registerPreviewRoutes(api: Hono, adapter: StudioApiAdapter): voi
       );
       return c.html(bundled, 200, previewCacheHeaders(etag));
     } catch {
-      if (diskMain && normalizedDisk !== null) {
+      // Re-read disk on bundle failure so we serve the latest file content,
+      // not the pre-request snapshot that may have been saved over.
+      const fallback = resolveProjectMainHtml(project.dir, project.id);
+      if (fallback) {
+        const fallbackHtml = persistHfIdsIfNeeded(
+          join(project.dir, fallback.compositionPath),
+          fallback.html,
+        );
         return c.html(
           injectStudioPreviewAugmentations(
-            ensureHfIds(
-              await transformPreviewHtml(
-                normalizedDisk,
-                adapter,
-                project,
-                diskMain.compositionPath,
-              ),
-            ),
+            await transformPreviewHtml(fallbackHtml, adapter, project, fallback.compositionPath),
             adapter,
             project.dir,
-            diskMain.compositionPath,
+            fallback.compositionPath,
           ),
           200,
           previewCacheHeaders(etag),
@@ -305,6 +312,7 @@ export function registerPreviewRoutes(api: Hono, adapter: StudioApiAdapter): voi
   });
 
   // Static asset serving (with range request support for audio/video seeking)
+  // fallow-ignore-next-line complexity
   api.get("/projects/:id/preview/*", async (c) => {
     const project = await adapter.resolveProject(c.req.param("id"));
     if (!project) return c.json({ error: "not found" }, 404);
