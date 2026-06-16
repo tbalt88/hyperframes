@@ -11,6 +11,8 @@ function createMockDeps() {
     onSetVolume: vi.fn(),
     onSetMediaOutputMuted: vi.fn(),
     onSetPlaybackRate: vi.fn(),
+    onSetColorGrading: vi.fn(),
+    onSetColorGradingCompare: vi.fn(),
     onEnablePickMode: vi.fn(),
     onDisablePickMode: vi.fn(),
   };
@@ -109,6 +111,30 @@ describe("installRuntimeControlBridge", () => {
     const handler = installRuntimeControlBridge(deps);
     handler(makeControlMessage("set-playback-rate"));
     expect(deps.onSetPlaybackRate).toHaveBeenCalledWith(1);
+  });
+
+  it("dispatches set-color-grading command with target and grading payload", () => {
+    const deps = createMockDeps();
+    const handler = installRuntimeControlBridge(deps);
+    const grading = { preset: "warm-clean", intensity: 0.7 };
+    const target = { id: "hero-video", selectorIndex: 0 };
+    handler(makeControlMessage("set-color-grading", { target, grading }));
+    expect(deps.onSetColorGrading).toHaveBeenCalledWith(
+      { id: "hero-video", hfId: null, selector: null, selectorIndex: 0 },
+      grading,
+    );
+  });
+
+  it("dispatches set-color-grading-compare command with target and compare payload", () => {
+    const deps = createMockDeps();
+    const handler = installRuntimeControlBridge(deps);
+    const compare = { enabled: true, position: 0.42 };
+    const target = { id: "hero-video", selectorIndex: 0 };
+    handler(makeControlMessage("set-color-grading-compare", { target, compare }));
+    expect(deps.onSetColorGradingCompare).toHaveBeenCalledWith(
+      { id: "hero-video", hfId: null, selector: null, selectorIndex: 0 },
+      compare,
+    );
   });
 
   it("dispatches tick command", () => {

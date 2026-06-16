@@ -1,4 +1,5 @@
 import { swallow } from "./diagnostics";
+import type { HfColorGradingTarget } from "../colorGrading";
 import type { RuntimeBridgeControlMessage, RuntimeOutboundMessage } from "./types";
 
 type BridgeDeps = {
@@ -10,9 +11,38 @@ type BridgeDeps = {
   onSetVolume: (volume: number) => void;
   onSetMediaOutputMuted: (muted: boolean) => void;
   onSetPlaybackRate: (rate: number) => void;
+  onSetColorGrading: (target: HfColorGradingTarget | string | null, grading: unknown) => void;
+  onSetColorGradingCompare: (
+    target: HfColorGradingTarget | string | null,
+    compare: unknown,
+  ) => void;
   onEnablePickMode: () => void;
   onDisablePickMode: () => void;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readOptionalIndex(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function readColorGradingTarget(value: unknown): HfColorGradingTarget | string | null {
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return null;
+  return {
+    id: readOptionalString(value.id),
+    hfId: readOptionalString(value.hfId),
+    selector: readOptionalString(value.selector),
+    selectorIndex: readOptionalIndex(value.selectorIndex),
+  };
+}
 
 export function postRuntimeMessage(payload: RuntimeOutboundMessage): void {
   try {
@@ -58,6 +88,19 @@ export function installRuntimeControlBridge(deps: BridgeDeps): (event: MessageEv
     }
     if (action === "set-playback-rate") {
       deps.onSetPlaybackRate(Number(data.playbackRate ?? 1));
+      return;
+    }
+    if (action === "set-color-grading") {
+      const payload = isRecord(data) ? data : {};
+      deps.onSetColorGrading(readColorGradingTarget(payload.target), payload.grading ?? null);
+      return;
+    }
+    if (action === "set-color-grading-compare") {
+      const payload = isRecord(data) ? data : {};
+      deps.onSetColorGradingCompare(
+        readColorGradingTarget(payload.target),
+        payload.compare ?? null,
+      );
       return;
     }
     if (action === "enable-pick-mode") {
