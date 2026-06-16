@@ -102,7 +102,6 @@ export interface RuntimeColorGradingApi {
     target: HfColorGradingTarget | string | null | undefined,
     rawGrading: unknown,
   ) => boolean;
-  clearGrading: (target: HfColorGradingTarget | string | null | undefined) => boolean;
   setCompare: (
     target: HfColorGradingTarget | string | null | undefined,
     rawCompare: unknown,
@@ -419,22 +418,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readNumber(value: unknown, fallback: number): number {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
 function normalizeCompare(raw: unknown): RuntimeColorGradingCompareState {
   if (!isRecord(raw)) return { ...DEFAULT_COMPARE };
+  const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
+    const parsed = typeof value === "number" ? value : Number(value);
+    return Math.min(max, Math.max(min, Number.isFinite(parsed) ? parsed : fallback));
+  };
   return {
     enabled: raw.enabled === true,
-    position: clamp(readNumber(raw.position, DEFAULT_COMPARE.position), 0, 1),
-    softness: clamp(readNumber(raw.softness, DEFAULT_COMPARE.softness), 0, 0.25),
-    lineWidth: clamp(readNumber(raw.lineWidth, DEFAULT_COMPARE.lineWidth), 0, 12),
+    position: clampNumber(raw.position, DEFAULT_COMPARE.position, 0, 1),
+    softness: clampNumber(raw.softness, DEFAULT_COMPARE.softness, 0, 0.25),
+    lineWidth: clampNumber(raw.lineWidth, DEFAULT_COMPARE.lineWidth, 0, 12),
   };
 }
 
@@ -1149,13 +1143,6 @@ export function createColorGradingRuntime(): RuntimeColorGradingApi {
     return upsert(element, grading, "live");
   };
 
-  const clearGrading = (target: HfColorGradingTarget | string | null | undefined): boolean => {
-    const element = resolveTarget(target);
-    if (!element) return false;
-    removeElement(element);
-    return true;
-  };
-
   const setSourceVisibility = (target: Element, visible: boolean): boolean => {
     if (!isColorGradingMediaElement(target)) return false;
     const entry = entries.get(target);
@@ -1214,7 +1201,6 @@ export function createColorGradingRuntime(): RuntimeColorGradingApi {
     refresh,
     redraw,
     setGrading,
-    clearGrading,
     setCompare,
     setSourceVisibility,
     getStatus,
